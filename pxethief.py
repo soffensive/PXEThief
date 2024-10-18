@@ -11,6 +11,7 @@
 from scapy.all import *
 import binascii
 import string
+import pdb
 import ipaddress
 import socket
 import platform
@@ -46,8 +47,8 @@ SCCM_BASE_URL = "" #The beginning of the DP URL as read from settings.ini; takes
 DUMP_MPKEYINFORMATIONMEDIA_XML = False
 DUMP_REPLYASSIGNMENTS_XML = False
 DUMP_POLICIES = False
-DUMP_TS_XML = False
-DUMP_TS_Sequence_XML = False
+DUMP_TS_XML = True
+DUMP_TS_Sequence_XML = True
 
 # Global Variables
 BLANK_PASSWORDS_FOUND = False
@@ -178,6 +179,7 @@ def find_pxe_server():
 
         # Pull out DHCP offer from received answer packet
         dhcp_options = packet[1][DHCP].options
+        print(dhcp_options)
         
         tftp_server = next((opt[1] for opt in dhcp_options if isinstance(opt, tuple) and opt[0] == "tftp_server_name"),None)
         if tftp_server:
@@ -662,7 +664,7 @@ def analyse_task_sequence_for_potential_creds(ts_xml):
     #Known tags: property="DomainPassword" name="OSDJoinPassword", property="DomainUsername" name="OSDJoinAccount", property="AdminPassword" name="OSDLocalAdminPassword", property="RegisteredUserName" name="OSDRegisteredUserName", property="CapturePassword" name="OSDCaptureAccountPassword", property="CaptureUsername" name="OSDCaptureAccount"
     tree = ET.fromstring(ts_xml).getroottree()
 
-    keyword_list = ["password", "account", "username"]
+    keyword_list = ["password", "account", "username","dynamicvariable"]
     element_search_list = []
     
     for word in keyword_list:
@@ -679,7 +681,8 @@ def analyse_task_sequence_for_potential_creds(ts_xml):
             parent = element.getparent() # TODO if parent is defaultvarlist
             if parent not in parent_list:
                 parent_list.append(parent)
-                print("In TS Step \"" + parent.getparent().attrib["name"]+"\":")
+                
+                print("In TS Step \"" + parent.getparent().attrib.get('name','NONAME')+"\":")
                 unique_words = [x for x in keyword_list if x != word]
 
                 par = ET.ElementTree(parent)
@@ -687,9 +690,9 @@ def analyse_task_sequence_for_potential_creds(ts_xml):
 
                     for el in par.xpath('//*[contains(translate(@name,"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"),"' + unique_word + '")]'):
                         if el != element: #duplicate tags that match more than one keyword
-                            print(el.attrib["name"] + " - " + el.text)        
+                            print(f"{el.attrib.get('name','NONAME')}  - {el.text}")        
                     
-                print(element.attrib["name"] + " - " + str(element.text))
+                print(element.attrib.get('name','NONAME') + " - " + str(element.text))
                 print()
     
     if not creds_found:
@@ -760,7 +763,7 @@ def make_all_http_requests_and_retrieve_sensitive_policies(CCMClientID,CCMClient
                 allPoliciesURLs[policy.get("PolicyCategory")] = policy.find("PolicyLocation").text.replace("http://<mp>",sccm_base_url) 
             else:
                 if policy.get("PolicyCategory") is None:
-                    allPoliciesURLs["".join(i for i in policy.get("PolicyID") if i not in "\/:*?<>|")] = policy.find("PolicyLocation").text.replace("http://<mp>",sccm_base_url) 
+                    allPoliciesURLs["".join(i for i in policy.get("PolicyID") if i not in "\\/:*?<>|")] = policy.find("PolicyLocation").text.replace("http://<mp>",sccm_base_url) 
                 else:
                     allPoliciesURLs[policy.get("PolicyCategory") + str(dedup)] = policy.find("PolicyLocation").text.replace("http://<mp>",sccm_base_url) 
                     dedup = dedup + 1
@@ -773,7 +776,9 @@ def make_all_http_requests_and_retrieve_sensitive_policies(CCMClientID,CCMClient
         POLICY_FOLDER_PREFIX = SCCM_BASE_URL[7:].lstrip("/").rstrip("/")
         #Dump all config XMLs to disk - Uncomment to write to policies/*.xml
         policy_folder = os.getcwd() + "/" + POLICY_FOLDER_PREFIX + "_policies/"
-        os.mkdir(policy_folder)
+        if not os.path.exists(policy_folder):
+            os.mkdir(policy_folder)
+            
         for category, url in allPoliciesURLs.items():
             if category is not None:
                 print("[+] Requesting " + category + " from: " + url)
@@ -840,7 +845,7 @@ if __name__ == "__main__":
         print("%s 4 <variables-file-name> <policy-file-path> <password> - Attempt to decrypt a saved media variables file and Task Sequence XML file retrieved from a full TS media" % sys.argv[0])
         print("%s 5 <variables-file-name> - Print the hash corresponding to a specified media variables file for cracking in hashcat" % sys.argv[0])
         print("%s 6 <identityguid> <identitycert-file-name> - Retrieve task sequences using the values obtained from registry keys on a DP" % sys.argv[0])
-        print("%s 7 <Reserved1-value> - Decrypt stored PXE password from SCCM DP registry key (reg query HKLM\software\microsoft\sms\dp /v Reserved1)" % sys.argv[0])
+        print("%s 7 <Reserved1-value> - Decrypt stored PXE password from SCCM DP registry key (reg query HKLM\\software\\microsoft\\sms\\dp /v Reserved1)" % sys.argv[0])
         print("%s 8 - Write new default settings.ini file in PXEThief directory" % sys.argv[0])
         print("%s 10 - Print Scapy interface table to identify interface indexes for use in 'settings.ini'" % sys.argv[0])
 
